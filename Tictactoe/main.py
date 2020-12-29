@@ -138,7 +138,7 @@ class MainWindow(tk.Tk):
         [board_frame.columnconfigure(i, weight=1) for i in range(3)]
         [board_frame.rowconfigure(i, weight=1) for i in range(3)]
 
-        self.columnconfigure(0, weight=1, minsize=200 )
+        self.columnconfigure(0, weight=1, minsize=200)
         self.columnconfigure(1, weight=6)
         self.rowconfigure(2, weight=1)
 
