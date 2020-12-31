@@ -2,18 +2,12 @@ import sys
 sys.path.append('../')
 
 import random
+import copy
 
-import numpy
-import pandas as pd
 import pygame
 
-from Utils.pygame_util import Label, Button, Frame
+from Ludo.pygame_util import Label, Button, Frame
 
-
-BOARD = numpy.zeros((4, 4), dtype='int')
-undos = [BOARD.copy()]
-last_score = score = depth = 0
-restarting = False
 
 BGCOLOR = (250, 248, 239)
 BLACK = (0, 0, 0)
@@ -46,92 +40,14 @@ colors = {
 }
 
 
-def getEmpty(board):
-    """ Empty spaces """
-    lst = []
-    for i in range(4):
-        for j in range(4):
-            if board[i][j] == 0:
-                lst.append((i, j))
-    return lst
-
-
-def drop(board, n):
-    """ Random drops """
-    for i in range(n):
-        row, col = random.choice(getEmpty(board))
-        board[row][col] = random.choice(vals)
-    return board
-
-
-def removeSpaces(board):
-    """ remove the spaces between tiles """
-    for x in range(3):
-        for i in range(4):
-            for j in range(x, 4):
-                if board[i][x] == 0:
-                    board[i][x] = board[i][j]
-                    board[i][j] = 0
-    return board
-
-
-def move(board, direction):
-    """ Move in Left, Right, Up or Down """
-
-    global score, last_score
-    initial_score = score
-    board1 = board.copy()
-    board2 = numpy.rot90(board1, direction)
-    board2 = removeSpaces(board2)
-
-    # merge adjacent tiles
-    for i in range(4):
-        for j in range(1, 4):
-            if board2[i][j] == board2[i][j - 1]:
-                board2[i][j - 1] *= 2
-                score += board2[i][j - 1]
-                board2[i][j] = 0
-
-    board2 = removeSpaces(board2)
-    board1 = numpy.rot90(board2, -direction)
-
-    if not numpy.array_equal(board, board1):
-        undos.append(board)
-        board1 = drop(board1, 1)
-
-    if initial_score != score:
-        last_score = initial_score
-
-    return board1
-
-
-def state(board):
-    """ 1 for win, 0 for not finished, -1 for lose """
-    for i in range(4):  # check for empty spaces
-        for j in range(4):
-            if board[i][j] == 0:
-                return 0
-
-    for i in range(4):  # Horizontal Check
-        for j in range(1, 4):
-            if board[i][j] == board[i][j - 1]:
-                return 0
-
-    for i in range(3):  # Vertical Check
-        for j in range(4):
-            if board[i][j] == board[i + 1][j]:
-                return 0
-
-    return -1
-
-
 class Block(pygame.sprite.Sprite):
     text = ' '
     fontColor = color = BLACK
 
-    def __init__(self, x, y, val):
+    def __init__(self, game, x, y, val):
         super().__init__()
 
+        self.game = game
         self.val = val
         self.font = pygame.font.SysFont("Clear Sans", 35)
         self.image = pygame.Surface(block_size)
@@ -144,7 +60,7 @@ class Block(pygame.sprite.Sprite):
 
     def update(self):
         """ update the sprite and its text """
-        curVal = BOARD[self.val[0]][self.val[1]]
+        curVal = self.game.board[self.val[0]][self.val[1]]
         self.text = str(curVal or ' ')
 
         if str(curVal) in colors:
@@ -163,118 +79,177 @@ class Block(pygame.sprite.Sprite):
         self.image.blit(self.textSurf, [block_size[0] / 2 - W / 2, block_size[1] / 2 - H / 2])
 
 
-def create_tiles(block_list, top):
-    for i in range(4):
-        for j in range(4):
-            block = Block(j * (block_size[0] + spaces[0]) + spaces[1], top, (i, j))
-            block_list.add(block)
+class Game:
+    def __init__(self):
+        self.screen = pygame.display.set_mode((SCREENX, SCREENY), 0, 32)
+        self.clock = pygame.time.Clock()
+        self.block_list = pygame.sprite.Group()
 
-        top += block_size[1] + spaces[2]
+        self.create_tiles(DIST_Y)
+        self.board = None
+        self.undos = None
+        self.restarting = False
 
+        self.create_widgets()
 
-def undo(x=None):
-    global BOARD, score, last_score
+    def create_widgets(self):
+        self.fonts = fonts = [pygame.font.SysFont('Arial', size, True) for size in [70, 40, 25]]
 
-    BOARD = undos[-1]
-    score = last_score
-
-
-def set_restart(value):
-    global restarting
-
-    restarting = value
-
-
-def new():
-    global BOARD, score, last_score, undos
-
-    BOARD = numpy.zeros((4, 4), dtype='int')
-    last_score = score = 0
-    drop(BOARD, 2)
-    undos = [BOARD.copy()]
-
-
-def run(_depth=0):
-    global BOARD, last_score, score, undos, restarting, depth
-
-    """ Pygame variables and fonts """
-    pygame.init()
-    screen = pygame.display.set_mode((SCREENX, SCREENY), 0, 32)
-    clock = pygame.time.Clock()
-    block_list = pygame.sprite.Group()
-
-    fonts = [pygame.font.SysFont('Arial', size, True) for size in [70, 40, 25]]
-
-    lose_label = Label((0,0,200,100), font=fonts[1], text='You Lose', fgcolor=BLACK, bgcolor=(192,100,100))
-    restartUI = [Frame((45, 145, 405, 405), bgcolor=BLACK, transparency=100),
-                 Frame((150,300,200,100), bgcolor=(192,100,100)),
-                 Label((150,300,200,50), font=fonts[1], text='Restart?', fgcolor=BLACK, bgcolor=(192,100,100)),
-                 Button((160,360,75,35), font=fonts[1], text='Yes', fgcolor=BLACK, bgcolor=(100,100,180), command=lambda x: run(_depth+1)),
-                 Button((265,360,75,35), font=fonts[1], text='No', fgcolor=BLACK, bgcolor=(100,100,180), command=lambda x: set_restart(False))]
-    
-    mainUI = [Button((390,95,50,50), image=pygame.image.load('undo.png'), bgcolor=BGCOLOR, command=undo),
-              Button(((330,95,50,50)), image=pygame.image.load('restart.png'), bgcolor=BGCOLOR, command=lambda x: set_restart(True)),
-              Label((25,50,200,80), font=fonts[0], text="2048", bgcolor=BGCOLOR, fgcolor=BLACK)]
-
-    """ re-initialize board """
-    depth = max(depth, _depth)
-    if not depth:
-        [score, last_score] = numpy.loadtxt('score.csv', dtype='int')
-        [undos, BOARD] = numpy.loadtxt('data.csv', dtype='int').reshape((2, 4, 4))
-        undos = [undos]
-    else:
-        new()
-
-    create_tiles(block_list, DIST_Y)
-    restarting = False
-    running = True
-
-    while running:
-        if _depth != depth:
-            continue
-
-        screen.fill(BGCOLOR)
-        pygame.draw.rect(screen, (119, 110, 101), (45, 145, 405, 405))
-        block_list.draw(screen)
+        self.lose_label = Label((0,0,200,100), font=fonts[1], text='You Lose', fgcolor=BLACK, bgcolor=(192,100,100))
+        self.restartUI = [
+            Frame((45, 145, 405, 405), bgcolor=BLACK, transparency=100),
+            Frame((150,300,200,100), bgcolor=(192,100,100)),
+            Label((150,300,200,50), font=fonts[1], text='Restart?', fgcolor=BLACK, bgcolor=(192,100,100)),
+            Button((160,360,75,35), font=fonts[1], text='Yes', fgcolor=BLACK, bgcolor=(100,100,180), command=self.restart),
+            Button((265,360,75,35), font=fonts[1], text='No', fgcolor=BLACK, bgcolor=(100,100,180), command=lambda x: self.set_restart(False))
+        ]
         
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
+        self.mainUI = [
+            Button((390,95,50,50), image=pygame.image.load('undo.png'), bgcolor=BGCOLOR, command=self.undo),
+            Button(((330,95,50,50)), image=pygame.image.load('restart.png'), bgcolor=BGCOLOR, command=lambda x: self.set_restart(True)),
+            Label((25,50,200,80), font=fonts[0], text="2048", bgcolor=BGCOLOR, fgcolor=BLACK)
+        ]
 
-            elif event.type == pygame.KEYDOWN and not restarting:
-                "game movement based on keys pressed "
 
-                if event.key == pygame.K_w: BOARD = move(BOARD, 1)
-                elif event.key == pygame.K_a: BOARD = move(BOARD, 0)
-                elif event.key == pygame.K_s: BOARD = move(BOARD, 3)
-                elif event.key == pygame.K_d: BOARD = move(BOARD, 2)
-                elif event.key == pygame.K_u:
-                    if len(undos):
-                        BOARD = undos.pop()
-                        score = last_score
+    def state(self):
+        """0 for not finished, -1 for lose """
+        # Check for empty spaces
+        if any(self.board[i][j] == 0 for j in range(4) for i in range(4)):
+            return 0
 
-        x = state(BOARD)
-        block_list.update()
-        if x == -1:
-            lose_label.draw(screen, centre=True)
-            restarting = True
+        # Check if 2 similar numbers are in consecutive cells
+        for i in range(3):
+            for j in range(3):
+                if self.board[i][j] == self.board[i+1][j] or self.board[i][j] == self.board[i][j+1]:
+                    return 0
+        
+        return -1
+    
+    def generate_board(self):
+        self.board = [[0 for _ in range(4)] for _ in range(4)]
+        self.drop(self.board, 2)
 
-        if restarting: [u.draw(screen) for u in restartUI]
+        self.undos = [copy.deepcopy(self.board)]
+        self.score = self.last_score = 0
 
-        Label((275,50,180,50), font=fonts[2], text=f"SCORE: {score}", bgcolor=BGCOLOR, fgcolor=BLACK).draw(screen)
-        [u.draw(screen) for u in mainUI]
+    def create_tiles(self, top):
+        for i in range(4):
+            for j in range(4):
+                block = Block(self, j * (block_size[0] + spaces[0]) + spaces[1], top, (i, j))
+                self.block_list.add(block)
 
-        pygame.display.flip()
-        clock.tick(FPS)
+            top += block_size[1] + spaces[2]
 
-    pygame.quit()
-    undos.append(BOARD)
-    data = numpy.array(undos[-2:]).reshape(8, 4)
+    def getEmpty(self, board):
+        """ Empty spaces """
+        return [(i, j) for i in range(4) for j in range(4) if board[i][j] == 0]
+    
+    def removeSpaces(self, board):
+        """ remove the spaces between tiles """
+        print(board)
+        for x in range(3):
+            for i in range(4):
+                for j in range(x, 4):
+                    if board[i][x] == 0:
+                        board[i][x] = board[i][j]
+                        board[i][j] = 0
+        return board
+    
+    def rot90(self, board, direction):
+        if direction < 0:
+            direction += 4
+        for _ in range(direction):
+            board = [list(row) for row in zip(*board)][::-1]
+        return board
 
-    if depth == _depth:
-        numpy.savetxt('data.csv', data, fmt='%d')
-        numpy.savetxt('score.csv', [score, last_score], fmt='%d')
+    def drop(self, board, n):
+        """ Random drops """
+        for i in range(n):
+            row, col = random.choice(self.getEmpty(board))
+            board[row][col] = random.choice(vals)
+        return board
+
+    def move(self, direction):
+        """ Move in Left, Right, Up or Down """
+        initial_score = self.score
+        board1 = copy.deepcopy(self.board)
+        board2 = self.rot90(board1, direction)
+        board2 = self.removeSpaces(board2)
+
+        # merge adjacent tiles
+        for i in range(4):
+            for j in range(1, 4):
+                if board2[i][j] == board2[i][j - 1]:
+                    board2[i][j - 1] *= 2
+                    self.score += board2[i][j - 1]
+                    board2[i][j] = 0
+
+        board2 = self.removeSpaces(board2)
+        board1 = self.rot90(board2, -direction)
+
+        if self.board != board1:
+            self.undos.append(self.board)
+            board1 = self.drop(board1, 1)
+
+        if initial_score != self.score:
+            self.last_score = initial_score
+
+        return board1
+
+    def undo(self, _=None):
+        try:
+            self.board = self.undos.pop()
+            self.score = self.last_score
+        except:
+            pass
+
+    def set_restart(self, value):
+        self.restarting = value
+    
+    def restart(self, _=None):
+        self.running = False
+        self.run()
+
+    def run(self):
+        self.generate_board()
+        self.running = True
+        self.restarting = False
+        while self.running:
+            self.screen.fill(BGCOLOR)
+            pygame.draw.rect(self.screen, (119, 110, 101), (45, 145, 405, 405))
+            self.block_list.draw(self.screen)
+            
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.running = False
+
+                elif event.type == pygame.KEYDOWN:# and not restarting:
+                    "game movement based on keys pressed "
+                    
+                    if event.key == pygame.K_w: self.board = self.move(1)
+                    elif event.key == pygame.K_a: self.board = self.move(0)
+                    elif event.key == pygame.K_s: self.board = self.move(3)
+                    elif event.key == pygame.K_d: self.board = self.move(2)
+                    elif event.key == pygame.K_u and len(self.undos):
+                        self.undo()
+
+            x = self.state()
+            self.block_list.update()
+            if x == -1:
+                self.lose_label.draw(screen, centre=True)
+                self.restarting = True
+
+            if self.restarting:
+                [u.draw(self.screen) for u in self.restartUI]
+
+            Label((275,50,180,50), font=self.fonts[2], text=f"SCORE: {self.score}", bgcolor=BGCOLOR, fgcolor=BLACK).draw(self.screen)
+            [u.draw(self.screen) for u in self.mainUI]
+
+            pygame.display.flip()
+            self.clock.tick(FPS)
+
 
 
 if __name__ == "__main__":
-    run()
+    pygame.init()
+    Game().run()
