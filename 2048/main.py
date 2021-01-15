@@ -6,7 +6,8 @@ import copy
 
 import pygame
 
-from Ludo.pygame_util import Label, Button, Frame
+from widgets import Label, Button, Frame
+import pickle
 
 
 BGCOLOR = (250, 248, 239)
@@ -18,7 +19,7 @@ FPS = 30
 
 # size and positioning of the block
 block_size = (95, 95)
-spaces = [5, 50, 5]
+spaces = (5, 50, 5)
 DIST_Y = 150
 
 # 2 = 90%, 4 = 10%
@@ -93,22 +94,36 @@ class Game:
         self.create_widgets()
 
     def create_widgets(self):
-        self.fonts = fonts = [pygame.font.SysFont('Arial', size, True) for size in [70, 40, 25]]
+        #Label((275,50,180,50), font=self.fonts[2], text=f"SCORE: {self.score}", bgcolor=BGCOLOR, fgcolor=BLACK).draw(self.screen)
 
-        self.lose_label = Label((0,0,200,100), font=fonts[1], text='You Lose', fgcolor=BLACK, bgcolor=(192,100,100))
-        self.restartUI = [
-            Frame((45, 145, 405, 405), bgcolor=BLACK, transparency=100),
-            Frame((150,300,200,100), bgcolor=(192,100,100)),
-            Label((150,300,200,50), font=fonts[1], text='Restart?', fgcolor=BLACK, bgcolor=(192,100,100)),
-            Button((160,360,75,35), font=fonts[1], text='Yes', fgcolor=BLACK, bgcolor=(100,100,180), command=self.restart),
-            Button((265,360,75,35), font=fonts[1], text='No', fgcolor=BLACK, bgcolor=(100,100,180), command=lambda x: self.set_restart(False))
-        ]
-        
-        self.mainUI = [
-            Button((390,95,50,50), image=pygame.image.load('undo.png'), bgcolor=BGCOLOR, command=self.undo),
-            Button(((330,95,50,50)), image=pygame.image.load('restart.png'), bgcolor=BGCOLOR, command=lambda x: self.set_restart(True)),
-            Label((25,50,200,80), font=fonts[0], text="2048", bgcolor=BGCOLOR, fgcolor=BLACK)
-        ]
+        fonts = [pygame.font.SysFont('Arial', size, True) for size in (70, 40, 25)]
+        self.lose_label = Label(center=True, size=(200,100), font=fonts[1], text='You Lose', fgcolor=BLACK)
+
+        # Restart UI
+        self.restartUI = Frame(pos=(45,145), size=(405,405), bgcolor=BLACK, transparency=100)
+        restart_lbl = Frame(parent=self.restartUI, pos=(100,100), size=(205,105), bgcolor=(100,100,190))
+        Label(parent=restart_lbl, center=True, font=fonts[1], text='Restart?')
+
+        cancel_restart = Frame(parent=self.restartUI, pos=(220,215), size=(75,35), bgcolor=(192,100,100))
+        Button(parent=cancel_restart, center=True, font=fonts[1], text='No', command=lambda _: self.set_restart(False))
+
+        do_restart = Frame(parent=self.restartUI, pos=(115,215), size=(75,35), bgcolor=(192,100,100))
+        Button(parent=do_restart, center=True, font=fonts[1], text='Yes', command=self.restart)
+
+        # Main UI
+        self.mainUI = Frame(pos=(0,0), size=(SCREENX,SCREENY), bgcolor=BGCOLOR)
+
+        undo_btn_image = Frame(parent=self.mainUI, pos=(390,95), size=(50,50), image=pygame.image.load('undo.png'))
+        Button(parent=undo_btn_image, command=self.undo)
+
+        restart_btn_image = Frame(parent=self.mainUI, pos=(330,95), size=(50,50), image=pygame.image.load('restart.png'))
+        Button(parent=restart_btn_image, command=lambda _: self.set_restart(True))
+
+        title_frame = Frame(parent=self.mainUI, pos=(25,50), size=(200,80))
+        Label(parent=title_frame, center=True, font=fonts[0], text="2048")
+
+        score_frame = Frame(parent=self.mainUI, pos=(275,50), size=(180,50))
+        self.score_label = Label(parent=score_frame, center=True, font=fonts[2], text='score')
 
 
     def state(self):
@@ -126,11 +141,16 @@ class Game:
         return -1
     
     def generate_board(self):
-        self.board = [[0 for _ in range(4)] for _ in range(4)]
-        self.drop(self.board, 2)
-
-        self.undos = [copy.deepcopy(self.board)]
-        self.score = self.last_score = 0
+        try:
+            with open('saves.dat', 'rb') as file:
+                self.undos = pickle.load(file)
+                self.score, self.board = self.undos.pop()
+        except:
+            self.board = [[0 for _ in range(4)] for _ in range(4)]
+            self.drop(self.board, 2)
+            
+            self.undos = [(0, copy.deepcopy(self.board))]
+            self.score = 0
 
     def create_tiles(self, top):
         for i in range(4):
@@ -146,7 +166,6 @@ class Game:
     
     def removeSpaces(self, board):
         """ remove the spaces between tiles """
-        print(board)
         for x in range(3):
             for i in range(4):
                 for j in range(x, 4):
@@ -188,18 +207,14 @@ class Game:
         board1 = self.rot90(board2, -direction)
 
         if self.board != board1:
-            self.undos.append(self.board)
+            self.undos.append((initial_score, self.board))
             board1 = self.drop(board1, 1)
-
-        if initial_score != self.score:
-            self.last_score = initial_score
 
         return board1
 
     def undo(self, _=None):
         try:
-            self.board = self.undos.pop()
-            self.score = self.last_score
+            self.score, self.board = self.undos.pop()
         except:
             pass
 
@@ -210,12 +225,18 @@ class Game:
         self.running = False
         self.run()
 
+    def save(self):
+        with open('saves.dat', 'wb') as file:
+            pickle.dump(self.undos, file)
+
     def run(self):
         self.generate_board()
         self.running = True
         self.restarting = False
         while self.running:
-            self.screen.fill(BGCOLOR)
+            self.score_label.config(text=f"SCORE: {self.score}")
+            self.mainUI.draw(self.screen)
+
             pygame.draw.rect(self.screen, (119, 110, 101), (45, 145, 405, 405))
             self.block_list.draw(self.screen)
             
@@ -236,14 +257,11 @@ class Game:
             x = self.state()
             self.block_list.update()
             if x == -1:
-                self.lose_label.draw(screen, centre=True)
+                self.lose_label.draw(self.screen)
                 self.restarting = True
 
             if self.restarting:
-                [u.draw(self.screen) for u in self.restartUI]
-
-            Label((275,50,180,50), font=self.fonts[2], text=f"SCORE: {self.score}", bgcolor=BGCOLOR, fgcolor=BLACK).draw(self.screen)
-            [u.draw(self.screen) for u in self.mainUI]
+                self.restartUI.draw(self.screen)
 
             pygame.display.flip()
             self.clock.tick(FPS)
@@ -252,4 +270,6 @@ class Game:
 
 if __name__ == "__main__":
     pygame.init()
-    Game().run()
+    g = Game()
+    g.run()
+    g.save()

@@ -18,17 +18,27 @@ class Widget:
 
         if parent:
             parent.children.append(self)
+            self.cpos = self.pos[0] + self.parent.cpos[0], self.pos[1] + self.parent.cpos[1]
+        else:
+            self.cpos = self.pos
         self.surface = self.create_surface()
 
     def create_surface(self):
         pass
 
+    def config(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
     def collidepoint(self, pos):
-        x, y = self.pos
-        w, h = self.size
+        x, y = self.cpos
+        w, h = self.parent.size
         return x <= pos[0] <= x + w and y <= pos[1] <= y + h
 
     def draw(self, surface):
+        self.surface = self.create_surface()
+        self.update_surface(surface)
+
         if not self.center:
             pos = self.pos
         else:
@@ -37,6 +47,8 @@ class Widget:
             pos = self.pos = (w2-w1)//2, (h2-h1)//2
         surface.blit(self.surface, pos)
 
+    def update_surface(self, surface):
+        pass
 
 
 class Frame(Widget):
@@ -47,6 +59,10 @@ class Frame(Widget):
         self.border = border
         self.transparency = transparency
         self.children = []
+
+        if kwargs.get('parent') and not self.bgcolor:
+            self.bgcolor = kwargs.get('parent').bgcolor
+            print(self)
 
         super().__init__(pos=pos, size=size, **kwargs)
     
@@ -60,21 +76,20 @@ class Frame(Widget):
             surface.fill(self.bgcolor, ((bd,bd), (self.size[0]-bd*2, self.size[1]-bd*2)))
         
         if self.image:
-            surface.blit(self.image, ((bd,bd), (self.ize[0]-bd*2, self.size[1]-bd*2)))
+            surface.blit(self.image, ((bd,bd), (self.size[0]-bd*2, self.size[1]-bd*2)))
         
         surface.set_alpha(255 - self.transparency)
         return surface
 
-    def draw(self, surface):
+    def update_surface(self, surface):
         for c in self.children:
             c.draw(self.surface)
-        super().draw(surface)
 
 
 class Label(Widget):
     def __init__(self, font=None, text="", fgcolor=(0,0,0), **kwargs):
         self.text = text
-        self.font = font or pygame.font.get_default_font()
+        self.font = font or pygame.font.SysFont("Clear Sans", 35)
         self.fgcolor = fgcolor
 
         super().__init__(**kwargs)
@@ -89,15 +104,13 @@ class Button(Label):
         self.command = command
         super().__init__(**kwargs)
 
-    def draw(self, surface):
+    def update_surface(self, surface):
         pos = pygame.mouse.get_pos()
         click = pygame.mouse.get_pressed()
 
         if self.collidepoint(pos) and click[0] == 1:
             if self.command:
                 self.command(self)
-        
-        super().draw(surface)
 
 
 
