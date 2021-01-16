@@ -1,6 +1,5 @@
 import pygame
 import random
-import numpy
 
 from pygame_util import Button, Label, Frame
 
@@ -114,8 +113,7 @@ class Dice(pygame.sprite.Sprite):
 
         self.turn = turn
         self.draw(self.images[0], turn)
-        self.rect = self.image.get_rect()
-        self.rect.center = DICE_POS
+        self.rect = self.image.get_rect(center=DICE_POS)
 
     def roll(self, turn, finish=None):
         "Selects a random number from 1-6 and changes the image"
@@ -127,8 +125,8 @@ class Dice(pygame.sprite.Sprite):
         return self.current
 
     def update(self):
-        "Handle animation logic here"
-        if -1 < self.rolling < 36:
+        "Handle animation logic here (rolls for 36 frames)"
+        if -1 < self.rolling < 66:
             self.draw(self.images[(self.rolling//4)%6], self.turn)
             self.rolling += 1
         elif self.rolling == 36:
@@ -164,8 +162,7 @@ class Tile(pygame.sprite.Sprite):
         self.home = kwargs.get('home')
 
         self.draw(color)
-        self.rect = self.image.get_rect()
-        self.rect.center = x, y
+        self.rect = self.image.get_rect(center=(x,y))
 
     def draw(self, color):
         "Draws the image based on type of tile (home, spawn, safe)"
@@ -211,7 +208,8 @@ class Tile(pygame.sprite.Sprite):
         else:
             for i, color in enumerate(colors):
                 for p in color:
-                    p.rect.center = numpy.add(self.rect.center, numpy.multiply(positions[i], (TILEX//4, TILEY//4)))
+                    p.rect.centerx = self.rect.center[0] + positions[i][0] * TILEX//4
+                    p.rect.centery = self.rect.center[1] + positions[i][1] * TILEY//4
                     p.text(len(color))
 
     def find_pieces(self, board):
@@ -260,13 +258,15 @@ class AIPlayer:
 
 
 class Board:
-    center = numpy.divide(BOARD_SIZE, 2)
+    center = BOARD_SIZE[0]/2, BOARD_SIZE[1]/2
     colors = [GREEN, YELLOW, BLUE, RED]
     path = []
-    corners = [(0, 0, RED),
-               (BOARD_SIZE[0] - 6 * TILEX, 0, GREEN),
-               (BOARD_SIZE[0] - 6 * TILEX, BOARD_SIZE[1] - 6 * TILEY, YELLOW),
-               (0, BOARD_SIZE[1] - 6 * TILEY, BLUE)]
+    corners = [
+        (BOARD_SIZE[0] - 6 * TILEX, BOARD_SIZE[1] - 6 * TILEY, YELLOW),
+        (0, BOARD_SIZE[1] - 6 * TILEY, BLUE),
+        (0, 0, RED),
+        (BOARD_SIZE[0] - 6 * TILEX, 0, GREEN)
+    ]
     
     def __init__(self, game):
         self.game = game
@@ -287,7 +287,8 @@ class Board:
         # Create home path tiles
         for i in range(4):
             for j in range(6):
-                hx, hy = numpy.add(self.center, numpy.multiply(direction[i], (TILEX, TILEY)) * (1+j))
+                hx = self.center[0] + direction[i][0] * TILEX * (1+j)
+                hy = self.center[1] + direction[i][1] * TILEY * (1+j)
 
                 tile = Tile(position, hx, hy, self.colors[i], home=True, last=(j==5))
                 self.homePath[self.colors[i]].insert(0, tile)
@@ -339,7 +340,7 @@ class Board:
     def get_triangle_pos(self, index):
         triangles = [(1, -1), (1, 1), (-1, 1), (-1, -1)]
         
-        return numpy.subtract(self.center, numpy.multiply(triangles[index], (TILEX, TILEY)) * 1.5)
+        return self.center[0] + triangles[index][0] * TILEX * 1.5, self.center[1] + triangles[index][1] * TILEY * 1.5
         
 
 class Game(object):
@@ -374,7 +375,7 @@ class Game(object):
             self.change_turn()
             self.roll = True
         elif self.players[self.turn] not in self.humans:
-            self.next_ai_move = pygame.time.get_ticks() + 1000
+            self.next_ai_move = pygame.time.get_ticks() #+ 1000 # 1 second delay for next ai
 
     def move_piece(self, piece):
         "Moves pieces and checks for wins"
