@@ -48,7 +48,7 @@ class Bird(pygame.sprite.Sprite):
       self.rect.center = self.pos
 
       # Rotation
-      angle = math.atan(-self.velocity.y / SPEED) * 30
+      angle = math.atan(-self.velocity.y / SPEED) * 40
       self.image = pygame.transform.rotate(self.img, angle)
 
    def jump(self):
@@ -73,17 +73,15 @@ class Pipe(pygame.sprite.Sprite):
          self.image = pygame.transform.rotate(self.image, 180)
          pos_y = 0
 
-      self.rect = self.image.get_rect()
-      self.rect.x = pos_x
-      self.rect.y = pos_y
+      self.rect = self.image.get_rect(x=pos_x, y=pos_y)
 
    def update(self):
       self.rect.x -= SPEED
 
-      if self.rect.x < 0:
-         del self
+      if self.rect.x < -100:
+         self.kill()
 
-   def getScore(self, score):
+   def getScore(self):
       if self.rect.x < (SCREENX / 2) + (PIPE_WIDTH / 2) and not self.passed:
          self.passed = True
          return 0.5
@@ -91,121 +89,100 @@ class Pipe(pygame.sprite.Sprite):
       return 0
 
 
-def randomPipe():
-   p1, p2 = PIPE_DISTANCE
-   pipe_x = random.randint(p1, p2)
-   pipe_h = random.choice(PIPE_SIZE_COMBO)
+class Game:
+   def __init__(self):
+      self.screen = pygame.display.set_mode([SCREENX, SCREENY])
+      self.clock = pygame.time.Clock()
 
-   pipe1 = Pipe(pipe_x, pipe_h[1], True)
-   pipe2 = Pipe(pipe_x, pipe_h[0], False)
+      self.GOFont = self.restartFont = self.scoreFont = pygame.font.SysFont("comic", 50, bold=True)
+      self.bg = pygame.transform.scale(pygame.image.load('images/bg.png'), (SCREENX, SCREENY))
 
-   return (pipe1, pipe2)
+   def randomPipe(self):
+      p1, p2 = PIPE_DISTANCE
+      pipe_x = random.randint(p1, p2)
+      pipe_h = random.choice(PIPE_SIZE_COMBO)
 
-def main():
-   # Variables
-   crashed = start = False
-   score = 0
-   
-   pygame.init()
+      pipe1 = Pipe(pipe_x, pipe_h[1], True)
+      pipe2 = Pipe(pipe_x, pipe_h[0], False)
 
-   screen = pygame.display.set_mode([SCREENX, SCREENY])
-   clock = pygame.time.Clock()
-   GOFont = restartFont = scoreFont = pygame.font.SysFont("comic", 50, bold=True)
+      return (pipe1, pipe2)
 
-   # Load Background
-   load_bg = pygame.image.load('images/bg.png')
-   bg = pygame.transform.scale(load_bg, (SCREENX, SCREENY))
+   def run(self):
+      crashed = start = False
+      score = 0
 
-   bird = Bird()
-
-   # Create Sprite Group 
-   all_sprites = pygame.sprite.Group()
-   all_sprites.add(bird)
-
-   pipe1, pipe2 = randomPipe()
-   
-   pipes = pygame.sprite.Group()
-   pipes.add(pipe1, pipe2)
-   all_sprites.add(pipe1, pipe2)
-
-   
-   # Main Event Loop
-   while True:
-      for event in pygame.event.get():
-         if event.type == pygame.QUIT:
-            pygame.quit()
-            return
-
-         if event.type == pygame.KEYDOWN:
-            start = True
-            
-            if event.key == pygame.K_SPACE:
-               if crashed:
-                  return main()
-               else:
-                  bird.jump()
-
-      # Set Background
-      screen.blit(bg, (0, 0))
+      bird = Bird()
+      pipe1, pipe2 = self.randomPipe()
       
-      scoreText = scoreFont.render(str(int(score)), 1, WHITE)
-      scoreLabel = scoreText.get_rect()
-      scoreLabel.center = (SCREENX/2, 100)
+      pipes = pygame.sprite.Group(pipe1, pipe2)
+      all_sprites = pygame.sprite.Group(bird, pipes)
 
-      if start and not crashed:
-         collisions = pygame.sprite.spritecollide(bird, pipes, False)
+      while True:
+         for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+               return pygame.quit()
+            if event.type == pygame.KEYDOWN:
+               start = True
+               if event.key == pygame.K_SPACE:
+                  if crashed:
+                     return self.run()
+                  else:
+                     bird.jump()
 
-         if not bird.isAlive() or collisions:
-            del bird
-            crashed = True
+         # Set Background
+         self.screen.blit(self.bg, (0, 0))
+         
+         scoreText = self.scoreFont.render(str(int(score)), 1, WHITE)
+         scoreLabel = scoreText.get_rect(center=(SCREENX/2, 100))
 
-         all_sprites.update()
+         if start and not crashed:
+            collisions = pygame.sprite.spritecollide(bird, pipes, False)
 
-         for p in pipes:
-            score += p.getScore(score)
+            if not bird.isAlive() or collisions:
+               crashed = True
 
-         # Add more pipes
-         if pipe1.rect.x < SCREENX - PIPE_GAP_X and pipe2.rect.x < SCREENX - PIPE_GAP_X:
-            pipe1, pipe2 = randomPipe()
+            all_sprites.update()
+            score += sum(p.getScore() for p in pipes)
 
-            pipes.add(pipe1, pipe2)
-            all_sprites.add(pipe1, pipe2)
+            # Add more pipes
+            if pipe1.rect.x < SCREENX - PIPE_GAP_X and pipe2.rect.x < SCREENX - PIPE_GAP_X:
+               pipe1, pipe2 = self.randomPipe()
 
-      all_sprites.draw(screen)
-      screen.blit(scoreText, scoreLabel)
+               pipes.add(pipe1, pipe2)
+               all_sprites.add(pipe1, pipe2)
 
-      """ Now to make a label and a button """
+         all_sprites.draw(self.screen)
+         self.screen.blit(scoreText, scoreLabel)
 
-      if crashed:
-         # Game Over Label
-         GOText = GOFont.render('GAME OVER', True, WHITE)
-         GOLabel = GOText.get_rect()
-         screen.blit(GOText, (SCREENX/2 - GOLabel[2]/2, SCREENY/2 - GOLabel[3]/2))
+         """ Now to make a label and a button """
+         if crashed:
+            # Game Over Label
+            GOText = self.GOFont.render('GAME OVER', True, WHITE)
+            GOLabel = GOText.get_rect()
+            self.screen.blit(GOText, (SCREENX/2 - GOLabel[2]/2, SCREENY/2 - GOLabel[3]/2))
 
-         # Restart Button
-         restartText = restartFont.render('Restart', True, WHITE)
-         restartLabel = restartText.get_rect()
+            # Restart Button
+            restartText = self.restartFont.render('Restart', True, WHITE)
+            restartLabel = restartText.get_rect(center=(SCREENX/2, SCREENY/2 + GOLabel[3]))
+         
+            mouse = pygame.mouse.get_pos()
+            click = pygame.mouse.get_pressed()
 
-         restartLabel.center = (SCREENX/2, SCREENY/2 + GOLabel[3])
-      
-         mouse = pygame.mouse.get_pos()
-         click = pygame.mouse.get_pressed()
+            left, top, width, height = restartLabel
+            if left + width > mouse[0] > left and top + height > mouse[1] > top:
+               pygame.draw.rect(self.screen, (144, 238, 144), restartLabel)
 
-         left, top, width, height = restartLabel
-         if left + width > mouse[0] > left and top + height > mouse[1] > top:
-            pygame.draw.rect(screen, (144, 238, 144), restartLabel)
+               if click[0] == 1:
+                  return self.run()
+            else:
+               pygame.draw.rect(self.screen, (0, 200, 0), restartLabel)
 
-            if click[0] == 1:
-               return main()
-            
-         else:
-            pygame.draw.rect(screen, (0, 200, 0), restartLabel)
+            self.screen.blit(restartText, restartLabel)
 
-         screen.blit(restartText, restartLabel)
-
-      pygame.display.flip()
-      clock.tick(FPS)
+         pygame.display.flip()
+         self.clock.tick(FPS)
 
       
 if __name__ == '__main__':
-   main()
+   pygame.init()
+   Game().run()
