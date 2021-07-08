@@ -22,6 +22,20 @@ GREEN = (0, 255, 0)
 
 PLAYERS = [RED, BLUE]
 
+ABOUT_TEXT = """Air hockey is a game where
+two players play against each other
+
+Move your player using the mouse
+Hit the ball to the opponent's
+side to score a goal
+First one to get 7 goals wins!\n
+-----------------------------------\n
+Credits:\n
+Creator - Mashaal Sayeed
+Font - OmenType
+Images - pzUH
+"""
+
 
 def check_bounds(rect, bounds):
     "Ensures that the given rect is within the bounds rect"
@@ -35,6 +49,16 @@ def check_bounds(rect, bounds):
     elif rect.bottom > bounds.bottom:
         rect.bottom = bounds.bottom
     return rect
+
+
+def multiline_text(surface, font, color, text, top=0):
+    labels = []
+    width = surface.get_width()
+    for line in text.strip().splitlines():
+        label = font.render(line, 1, color)
+        rect = label.get_rect(centerx=width/2, top=top)
+        surface.blit(label, rect)
+        top += rect.height
 
 
 class Player(pygame.sprite.Sprite):
@@ -57,8 +81,18 @@ class Player(pygame.sprite.Sprite):
         pygame.draw.circle(self.image, BLACK, (PLAYER_RADIUS, PLAYER_RADIUS), PLAYER_RADIUS)
         pygame.draw.circle(self.image, self.color, (PLAYER_RADIUS, PLAYER_RADIUS), PLAYER_RADIUS - 5)
         pygame.draw.circle(self.image, BLACK, (PLAYER_RADIUS, PLAYER_RADIUS), 5)
+
+    def move_player(self):
+        if pygame.mouse.get_pressed()[0]:
+            target_rect = self.rect.copy()
+            target_rect.center = pygame.mouse.get_pos()
+
+            w, h = self.game.board_rect.size
+            bounds = pygame.Rect(0, h//2 + 50, w, h//2)
+            self.target_pos = check_bounds(target_rect, bounds).center
     
     def update(self):
+        self.move_player()
         self.rect = self.move_to(self.target_pos, MAX_PLAYER_SPEED)
 
     def move_to(self, target, max_speed):
@@ -127,6 +161,8 @@ class Ball(pygame.sprite.Sprite):
         pygame.draw.circle(self.image, WHITE, (BALL_RADIUS, BALL_RADIUS), BALL_RADIUS - 5)
     
     def check_collision(self, player):
+        "Check collisions with players and bounce accordingly"
+        # https://stackoverflow.com/a/345863
         # Check for collisions (distance b/w centers <= sum of radii)
         collision = pygame.math.Vector2(player.rect.centerx - self.rect.centerx, player.rect.centery - self.rect.centery)
         distance = collision.length()
@@ -183,25 +219,33 @@ class Ball(pygame.sprite.Sprite):
 
 
 class UIManager:
+    "Handles all UI stuff"
     def __init__(self, game):
         self.game = game
         self.buttons = [] # List[(rect, function)]
+        self.pause_message = 'PAUSED'
         self.load_assets()
 
     def load_assets(self):
-        self.title_font = pygame.font.SysFont('Arial', 30, bold=True)
-        self.score_font = pygame.font.SysFont('Arial', 40, bold=True)
-        self.goal_font = pygame.font.SysFont('Arial', 60, bold=True)
+        "Loads all the assets used before running the game"
+        self.font1 = pygame.font.Font('assets/soupofjustice.ttf', 60)
+        self.font2 = pygame.font.Font('assets/soupofjustice.ttf', 45)
+        self.font3 = pygame.font.Font('assets/soupofjustice.ttf', 40)
+        self.font4 = pygame.font.Font('assets/soupofjustice.ttf', 20)
 
-        self.goal_label = self.goal_font.render('GOAL!!', 1, WHITE)
-        self.title_label = self.title_font.render('AIR HOCKEY', 1, WHITE)
+        self.goal_label = self.font1.render('GOAL!!', 1, WHITE)
+        self.title_label = self.font2.render('AIR HOCKEY', 1, WHITE)
 
-        self.restart_img = pygame.image.load('images/restart.png')
-        self.pause_img = pygame.image.load('images/pause.png')
+        self.restart_img = pygame.image.load('assets/restart.png')
+        self.pause_img = pygame.image.load('assets/pause.png')
+        self.menu_btn_img =  pygame.image.load('assets/button.png')
+        self.close_img = pygame.image.load('assets/close.png')
+        self.bg_img = pygame.image.load('assets/bg.png')
 
     def draw_board(self, size):
+        "Drawing the game board"
         surface = pygame.Surface(size)
-        surface.fill('green3')
+        surface.fill((0, 0xC0, 0))
         rect = surface.get_rect()
 
         pygame.draw.circle(surface, WHITE, rect.center, 80, 3)
@@ -216,50 +260,114 @@ class UIManager:
         pygame.draw.line(surface, BLACK, (goal_edge_size, rect.height), (goal_edge_size + GOAL_WIDTH, rect.height), 7)
         return surface, rect
 
-    def prepare_main_ui(self):
+    def prepare_menu_surface(self):
+        self.menu_surface = pygame.Surface((SCREENX, SCREENY))
+        self.menu_surface.fill('darkgreen')
+        
+        self.menu_surface.blit(self.bg_img, (10, 30))
+        multiline_text(self.menu_surface, self.font1, WHITE, 'AIR HOCKEY\nPYTHON', top=50)
+
+        buttons = [
+            ('PLAY AI', lambda: self.change_state('MENU', 'PLAYING')),
+            ('PLAY ONLINE', None),
+            ('ABOUT', lambda: self.change_state('MENU', 'ABOUT')),
+            ('EXIT', self.game.quit)
+        ]
+        for i, (btn_text, func) in enumerate(buttons):
+            btn_img = self.menu_btn_img.copy()
+            btn_img_rect = btn_img.get_rect(center=(SCREENX/2, 250+i*75))
+            btn_label = self.font3.render(btn_text, 1, BLACK)
+            btn_rect = btn_label.get_rect(center=(btn_img_rect.w//2, btn_img_rect.h//2))
+            self.buttons.append((btn_img_rect, func))
+
+            btn_img.blit(btn_label, btn_rect)
+            self.menu_surface.blit(btn_img, btn_img_rect)
+    
+    def prepare_about_surface(self):
+        self.about_surface = pygame.Surface((SCREENX, SCREENY))
+        self.about_surface.fill('darkgreen')
+
+        about_label = self.font1.render('ABOUT', 1, WHITE)
+        about_rect = about_label.get_rect(center=(SCREENX/2, 50))
+        self.about_surface.blit(about_label, about_rect)
+
+        multiline_text(self.about_surface, self.font4, WHITE, ABOUT_TEXT, top=120)
+
+        close_btn_rect = self.close_img.get_rect(center=(SCREENX/2, 500))
+        self.buttons.append((close_btn_rect, lambda: self.change_state('ABOUT', 'MENU')))
+        self.about_surface.blit(self.close_img, close_btn_rect)
+
+    def prepare_pause_surface(self):
+        self.pause_bg_img = self.bg_img.copy()
+        self.pause_bg_rect = self.pause_bg_img.get_rect(center=self.board_rect.center)
+
+        restart_rect = self.restart_img.get_rect(x=110, y=75)
+        close_rect = self.close_img.get_rect(x=180, y=75)
+        self.buttons += [
+            (restart_rect.move(self.pause_bg_rect.x, self.pause_bg_rect.y), self.game.restart),
+            (close_rect.move(self.pause_bg_rect.x, self.pause_bg_rect.y), lambda: self.change_state('PAUSED', 'MENU'))
+        ]
+        self.pause_bg_img.blit(self.restart_img, restart_rect)
+        self.pause_bg_img.blit(self.close_img, close_rect)
+
+    def change_state(self, current, next_state):
+        if self.game.state == current:
+            self.game.state = next_state
+
+    def prepare(self):
+        "Run before main game loop"
+        self.prepare_menu_surface()
+        self.prepare_about_surface()
+
         self.board_surface, self.board_rect = self.draw_board((SCREENX, SCREENY - 50))
         self.board_rect.move_ip(0, 50)
 
         self.title_bg = pygame.Surface((SCREENX, 50))
-        self.title_bg.fill('forest green')
-        self.title_bg.blit(self.title_label, (20, 8))
-        
-        pause_rect = self.pause_img.get_rect(right=SCREENX - 60, y=0)
-        restart_rect = self.restart_img.get_rect(right=SCREENX - 5, y=0)
+        self.title_bg.fill('darkgreen')
+        self.title_bg.blit(self.title_label, (10, 5))
 
+        pause_rect = self.pause_img.get_rect(right=SCREENX - 5, y=0)
         self.title_bg.blit(self.pause_img, pause_rect)
-        self.title_bg.blit(self.restart_img, restart_rect)
 
-        self.buttons += [(pause_rect, self.game.pause), (restart_rect, self.game.restart)]
+        self.buttons.append((pause_rect, self.game.pause))
+        self.goal_rect = self.goal_label.get_rect(center=(SCREENX//2, SCREENY//2))
+        
+        self.prepare_pause_surface()
 
-        self.goal_rect = self.goal_label.get_rect(center=self.board_rect.center)
-        self.pause_bg_img = self.goal_font.render('PAUSED', 1, WHITE)
-        self.pause_bg_rect = self.pause_bg_img.get_rect(center=self.board_rect.center)
+    def draw(self, screen):
+        "Runs on main game loop - state PLAYING"
+        if self.game.state == 'MENU':
+            screen.blit(self.menu_surface, (0,0))
+        elif self.game.state == 'ABOUT':
+            screen.blit(self.about_surface, (0,0))
+        elif self.game.state == 'PLAYING':
+            screen.blit(self.board_surface, self.board_rect)
+            self.game.all_sprites.draw(screen)
 
-    def draw_run_ui(self, screen):
-        screen.blit(self.board_surface, self.board_rect)
-        self.game.all_sprites.draw(screen)
+            screen.blit(self.title_bg, (0, 0))
 
-        screen.blit(self.title_bg, (0, 0))
+            score_label1 = self.font3.render(str(self.game.scores[0]), 1, WHITE)
+            score_rect1 = score_label1.get_rect(right=SCREENX-5, bottom=SCREENY//2+25)
+            score_label2 = self.font3.render(str(self.game.scores[1]), 1, WHITE)
+            score_rect2 = score_label2.get_rect(right=SCREENX-5, top=SCREENY//2+25)
 
-        score_label1 = self.score_font.render(str(self.game.scores[0]), 1, WHITE)
-        score_rect1 = score_label1.get_rect(right=SCREENX-5, bottom=SCREENY//2+25)
-        score_label2 = self.score_font.render(str(self.game.scores[1]), 1, WHITE)
-        score_rect2 = score_label2.get_rect(right=SCREENX-5, top=SCREENY//2+25)
+            screen.blit(score_label1, score_rect1)
+            screen.blit(score_label2, score_rect2)
 
-        screen.blit(score_label1, score_rect1)
-        screen.blit(score_label2, score_rect2)
+            if self.game.goal:
+                screen.blit(self.goal_label, self.goal_rect)
+        elif self.game.state == 'PAUSED':    
+            pause_label = self.font1.render(self.pause_message, 1, WHITE)
+            pause_rect = pause_label.get_rect(centerx=SCREENX/2, y=self.pause_bg_rect.y+5)
 
-        if self.game.goal:
-            screen.blit(self.goal_label, self.goal_rect)
-    
-    def draw_pause_ui(self, screen):
-        screen.blit(self.pause_bg_img, self.pause_bg_rect)
+            screen.blit(self.pause_bg_img, self.pause_bg_rect)
+            screen.blit(pause_label, pause_rect)
 
-    def handle_mouse_down(self):
+    def handle_mouse_up(self):
+        "Used for detecting button clicks"
         pos = pygame.mouse.get_pos()
         for rect, function in self.buttons:
-            if rect.collidepoint(pos):
+            if function and rect.collidepoint(pos):
                 function()
 
 
@@ -269,21 +377,14 @@ class Game:
         self.clock = pygame.time.Clock()
         self.ui = UIManager(self)
 
-        self.state = 'PLAYING'
-        self.goal = self.game_over = False
+        self.state = 'MENU'
+        self.win = self.goal = self.game_over = False
         self.player1 = self.player2 = None
         self.scores = [0, 0]
 
         self.time_of_goal = 0
 
-    def move_player(self, player):
-        if pygame.mouse.get_pressed()[0]:
-            target_rect = player.rect.copy()
-            target_rect.center = pygame.mouse.get_pos()
-
-            w, h = self.board_rect.size
-            bounds = pygame.Rect(0, h//2 + 50, w, h//2)
-            player.target_pos = check_bounds(target_rect, bounds).center
+        pygame.display.set_caption('Air Hockey Python')
     
     def score_goal(self):
         self.goal = True
@@ -292,28 +393,34 @@ class Game:
             self.scores[0] += 1
         else:
             self.scores[1] += 1
-        
-        if self.scores[0] == 7:
-            message = 'You Lose!'
-        elif self.scores[1] == 7:
-            message = 'You Win' 
 
-    def reset(self):
-        self.ball.reset()
-        self.player1.reset()
-        self.player2.reset()
-        self.goal = False
+        if 7 in self.scores:
+            self.state = 'PAUSED'
+            self.ui.pause_message = 'You Lose!' if self.scores[0] == 7 else 'You Win'
+            self.win = True
     
+    def reset(self):
+        [sprite.reset() for sprite in self.all_sprites]
+        self.win = self.goal = False
+
     def pause(self):
-        self.state = 'PAUSED' if self.state == 'PLAYING' else 'PLAYING'
+        if self.state == 'PLAYING':
+            self.state = 'PAUSED' 
+        elif self.state == 'PAUSED' and not self.win:
+            self.state = 'PLAYING'
 
     def restart(self):
-        self.reset()
-        self.scores = [0, 0]
-        self.state = 'PLAYING'
+        if self.state == 'PAUSED':
+            self.reset()
+            self.scores = [0, 0]
+            self.state = 'PLAYING'
+        
+    def quit(self):
+        if self.state == 'MENU':
+            self.game_over = True
 
     def run(self):
-        self.ui.prepare_main_ui()
+        self.ui.prepare()
         self.board_rect = self.ui.board_rect
 
         self.player1 = AIPlayer(self, 0, SCREENX//2, SCREENY//4 + 50)
@@ -326,27 +433,22 @@ class Game:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.game_over = True
-                elif event.type == pygame.MOUSEBUTTONDOWN:
-                    self.ui.handle_mouse_down()
+                elif event.type == pygame.MOUSEBUTTONUP:
+                    self.ui.handle_mouse_up()
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_p:
                         self.pause()
                     elif event.key == pygame.K_r:
                         self.restart()
-            
-            if self.state == 'PLAYING':
-                self.ui.draw_run_ui(self.screen)
 
+            self.ui.draw(self.screen)
+            if self.state == 'PLAYING':
                 self.ball.check_collision(self.player2)
                 self.ball.check_collision(self.player1)
-
-                self.move_player(self.player2)
                 self.all_sprites.update()
 
                 if self.goal and time.time() - self.time_of_goal >= GOAL_TEXT_DELAY:
                     self.reset()
-            elif self.state == 'PAUSED':
-                self.ui.draw_pause_ui(self.screen)
 
             pygame.display.flip()
             self.clock.tick(FPS)
